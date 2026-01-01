@@ -14,6 +14,7 @@ export default function Home() {
   const [loadWeight, setLoadWeight] = useState(INITIAL_LOAD);
   const [efficiency, setEfficiency] = useState(1.0);
   const [maCount, setMaCount] = useState(1);
+  const [preset, setPreset] = useState<'SIMPLE' | 'COMPLEX'>('SIMPLE');
 
   const [nodes, setNodes] = useState<Node[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -86,15 +87,85 @@ export default function Home() {
 
   }, []);
 
-  useEffect(() => {
-    generateSystem(maCount);
-  }, [maCount, generateSystem]);
+  const generateComplexRig = useCallback(() => {
+    // Single Rope Path Topology (Reeve-style Highline)
+    // Path: Port-a-wrap (Haul) -> Tree Top (Redirect) -> Oval+Triple (Carriage) 
+    //       -> Building Anchor -> Oval+Triple -> Load Block -> Oval+Triple (Becket)
+
+    // Nodes with descriptive labels
+    const n_portawrap = {
+      id: 'n_portawrap',
+      position: new Vector2(750, 500),
+      type: 'ANCHOR' as const,
+      label: 'Port-a-wrap'
+    };
+
+    const n_tree_top = {
+      id: 'n_tree_top',
+      position: new Vector2(750, 120),
+      type: 'PULLEY_ANCHOR' as const,
+      label: 'Tree Top Redirect'
+    };
+
+    const n_building = {
+      id: 'n_building',
+      position: new Vector2(100, 100),
+      type: 'ANCHOR' as const,
+      label: 'Building Anchor'
+    };
+
+    const n_carriage = {
+      id: 'n_carriage',
+      position: new Vector2(400, 220),
+      type: 'PULLEY_FREE' as const,
+      label: 'Oval+Triple'
+    };
+
+    const n_load = {
+      id: 'n_load',
+      position: new Vector2(400, 400),
+      type: 'LOAD' as const,
+      label: 'Load Block'
+    };
+
+    const newNodes: Node[] = [n_portawrap, n_tree_top, n_building, n_carriage, n_load];
+
+    // Single continuous rope segments
+    const s1 = { id: 's1', nodeAId: 'n_portawrap', nodeBId: 'n_tree_top' };      // Haul up
+    const s2 = { id: 's2', nodeAId: 'n_tree_top', nodeBId: 'n_carriage' };       // Redirect to carriage
+    const s3 = { id: 's3', nodeAId: 'n_carriage', nodeBId: 'n_building' };       // Highline left
+    const s4 = { id: 's4', nodeAId: 'n_building', nodeBId: 'n_carriage' };       // Highline right
+    const s5 = { id: 's5', nodeAId: 'n_carriage', nodeBId: 'n_load' };           // Down to load
+    const s6 = { id: 's6', nodeAId: 'n_load', nodeBId: 'n_carriage' };           // Back up (2:1 on load)
+
+    const newSegments = [s1, s2, s3, s4, s5, s6];
+
+    // Single rope containing all segments in order
+    const mainRope: Rope = {
+      id: 'r_main',
+      segmentIds: ['s1', 's2', 's3', 's4', 's5', 's6'],
+      color: '#3b82f6'
+    };
+
+    setNodes(newNodes);
+    setSegments(newSegments);
+    setRopes([mainRope]);
+  }, []);
 
   useEffect(() => {
-    // Pass maCount as targetMA for safety check
-    const res = solveEquilibrium(nodes, segments, ropes, loadWeight, efficiency, maCount);
+    if (preset === 'SIMPLE') {
+      generateSystem(maCount);
+    } else {
+      generateComplexRig();
+    }
+  }, [maCount, preset, generateSystem, generateComplexRig]);
+
+  useEffect(() => {
+    // Pass maCount as targetMA for safety check ONLY in Simple mode
+    const targetMA = preset === 'SIMPLE' ? maCount : undefined;
+    const res = solveEquilibrium(nodes, segments, ropes, loadWeight, efficiency, targetMA);
     setResult(res);
-  }, [nodes, segments, ropes, loadWeight, efficiency, maCount]);
+  }, [nodes, segments, ropes, loadWeight, efficiency, maCount, preset]);
 
   const handleNodeMove = useCallback((nodeId: string, pos: Vector2) => {
     // With simplified nodes, drag is easy.
@@ -112,6 +183,7 @@ export default function Home() {
   }, []);
 
   const handleReset = () => {
+    setPreset('SIMPLE');
     setMaCount(1);
     setEfficiency(1.0);
     setLoadWeight(INITIAL_LOAD);
@@ -130,7 +202,11 @@ export default function Home() {
         stats={result.stats}
         maCount={maCount}
         setMaCount={setMaCount}
-        onPreset={() => { }}
+        onPreset={(val) => {
+          // 0 = Simple, 1 = Complex for now
+          setPreset(val === 1 ? 'COMPLEX' : 'SIMPLE');
+        }}
+        currentPreset={preset}
         onReset={handleReset}
       />
       <div className="main-content">
@@ -141,6 +217,7 @@ export default function Home() {
           result={result}
           loadWeight={loadWeight}
           onNodeMove={handleNodeMove}
+          preset={preset}
         />
       </div>
     </div>

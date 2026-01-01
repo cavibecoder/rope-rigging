@@ -20,7 +20,8 @@ interface ControlsProps {
     // New props
     maCount: number;
     setMaCount: (n: number) => void;
-    onPreset: (n: number) => void; // Keeping for interface compat, unused
+    onPreset: (n: number) => void;
+    currentPreset: 'SIMPLE' | 'COMPLEX';
 }
 
 export default function Controls({
@@ -29,7 +30,8 @@ export default function Controls({
     onReset,
     nodeCount, segmentCount, maxTension,
     stats,
-    maCount, setMaCount
+    maCount, setMaCount,
+    onPreset, currentPreset
 }: ControlsProps) {
     const isHighTension = maxTension > loadWeight * 2;
 
@@ -39,27 +41,48 @@ export default function Controls({
                 Rope Rigging
             </h1>
 
-            {/* MA Stepper */}
+            {/* Preset Selector */}
             <div className="control-group">
-                <label className="control-label">Mechanical Advantage</label>
-                <div className="flex items-center gap-4 bg-gray-100 dark:bg-gray-800 p-2 rounded-lg justify-between">
+                <label className="control-label">System Preset</label>
+                <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
                     <button
-                        onClick={() => setMaCount(Math.max(1, maCount - 1))}
-                        className="w-8 h-8 flex items-center justify-center bg-white dark:bg-gray-700 shadow rounded font-bold hover:bg-gray-50"
+                        onClick={() => onPreset(0)}
+                        className={`flex-1 py-1 px-2 rounded text-sm font-medium transition-colors ${currentPreset === 'SIMPLE' ? 'bg-white shadow text-black' : 'text-gray-500 hover:text-gray-700'}`}
                     >
-                        -
+                        Standard
                     </button>
-                    <span className="font-bold text-lg">
-                        {maCount}:1 System
-                    </span>
                     <button
-                        onClick={() => setMaCount(Math.min(6, maCount + 1))}
-                        className="w-8 h-8 flex items-center justify-center bg-white dark:bg-gray-700 shadow rounded font-bold hover:bg-gray-50"
+                        onClick={() => onPreset(1)}
+                        className={`flex-1 py-1 px-2 rounded text-sm font-medium transition-colors ${currentPreset === 'COMPLEX' ? 'bg-white shadow text-black' : 'text-gray-500 hover:text-gray-700'}`}
                     >
-                        +
+                        Complex
                     </button>
                 </div>
             </div>
+
+            {/* MA Stepper (Only for Simple) */}
+            {currentPreset === 'SIMPLE' && (
+                <div className="control-group">
+                    <label className="control-label">Mechanical Advantage</label>
+                    <div className="flex items-center gap-4 bg-gray-100 dark:bg-gray-800 p-2 rounded-lg justify-between">
+                        <button
+                            onClick={() => setMaCount(Math.max(1, maCount - 1))}
+                            className="w-8 h-8 flex items-center justify-center bg-white dark:bg-gray-700 shadow rounded font-bold hover:bg-gray-50"
+                        >
+                            -
+                        </button>
+                        <span className="font-bold text-lg">
+                            {maCount}:1 System
+                        </span>
+                        <button
+                            onClick={() => setMaCount(Math.min(6, maCount + 1))}
+                            className="w-8 h-8 flex items-center justify-center bg-white dark:bg-gray-700 shadow rounded font-bold hover:bg-gray-50"
+                        >
+                            +
+                        </button>
+                    </div>
+                </div>
+            )}
 
             <div className="control-group">
                 <label className="control-label">
@@ -117,6 +140,17 @@ export default function Controls({
                     </div>
                 </div>
             </div>
+
+            {/* Complex Stats Panel */}
+            {currentPreset === 'COMPLEX' && (
+                <div className="info-section">
+                    <h3 style={{ margin: '0 0 0.5rem 0', fontWeight: '600', color: '#8b5cf6' }}>Force Analysis</h3>
+                    <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded text-xs leading-5">
+                        <p><strong>Note:</strong> Static approximation. Ignores friction at anchors, assume perfect redirects.</p>
+                        <p className="mt-2">Check the canvas labels for segment tensions and resultant forces at anchors.</p>
+                    </div>
+                </div>
+            )}
 
             <div className="info-section">
                 <h3 style={{ margin: '0 0 0.5rem 0', fontWeight: '600' }}>System Limit</h3>

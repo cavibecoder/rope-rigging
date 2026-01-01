@@ -5,6 +5,7 @@ export interface Node {
     position: Vector2;
     type: 'ANCHOR' | 'FREE' | 'LOAD' | 'PULLEY_FREE' | 'PULLEY_ANCHOR';
     sheaveCount?: number; // Optional visual property for blocks
+    label?: string; // Optional custom label for display
 }
 
 export interface Segment {
@@ -76,7 +77,7 @@ export function solveEquilibrium(
         const rowY = rowCount++;
 
         let externalForceY = 0;
-        if (node.type === 'LOAD' || node.type === 'PULLEY_FREE') {
+        if (node.type === 'LOAD') {
             externalForceY = loadWeight;
         }
 
@@ -221,7 +222,7 @@ function buildSystem(nodes: Node[], segments: Segment[], ropes: Rope[], loadWeig
         const rowX = rowCount++;
         const rowY = rowCount++;
         let externalForceY = 0;
-        if (node.type === 'LOAD' || node.type === 'PULLEY_FREE') externalForceY = loadWeight;
+        if (node.type === 'LOAD') externalForceY = loadWeight;
 
         B[rowX] = 0;
         B[rowY] = -externalForceY;

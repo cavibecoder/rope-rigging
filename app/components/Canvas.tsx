@@ -11,9 +11,10 @@ interface CanvasProps {
     result: SimulationResult;
     loadWeight: number;
     onNodeMove: (nodeId: string, pos: Vector2) => void;
+    preset?: 'SIMPLE' | 'COMPLEX';
 }
 
-export default function Canvas({ nodes, segments, ropes, result, loadWeight, onNodeMove }: CanvasProps) {
+export default function Canvas({ nodes, segments, ropes, result, loadWeight, onNodeMove, preset = 'SIMPLE' }: CanvasProps) {
     const svgRef = useRef<SVGSVGElement>(null);
     const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
 
@@ -66,12 +67,61 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
     // Render Anchor and Load Nodes as Circles (Blocks)
     const renderBlockNodes = () => {
         const anchors = nodes.filter(n => n.type === 'ANCHOR' || n.type === 'PULLEY_ANCHOR');
-        const loads = nodes.filter(n => n.type === 'LOAD' || n.type === 'PULLEY_FREE');
+        const loads = nodes.filter(n => n.type === 'LOAD');
+        const floaters = nodes.filter(n => n.type === 'PULLEY_FREE');
 
-        // Assuming Single Anchor and Single Load per new topology
+        // Safety check for shallow angles
+        const carriage = nodes.find(n => n.id === 'n_carriage');
+        const building = nodes.find(n => n.id === 'n_building');
+        const treeTop = nodes.find(n => n.id === 'n_tree_top');
+        let isUnsafe = false;
+        let leftAngle = 0;
+        let rightAngle = 0;
+
+        if (preset === 'COMPLEX' && carriage && building && treeTop) {
+            const avgY = (building.position.y + treeTop.position.y) / 2;
+            const sag = carriage.position.y - avgY;
+            const span = Math.abs(building.position.x - treeTop.position.x);
+            const angle = Math.atan2(Math.abs(sag), span / 2) * (180 / Math.PI);
+            if (angle < 10) isUnsafe = true;
+
+            // Calculate angles: 0° = down (toward load), 90° = horizontal, 180° = up (toward anchor)
+            // Left: Building -> Carriage
+            const leftDx = carriage.position.x - building.position.x;
+            const leftDy = carriage.position.y - building.position.y;
+            // atan2(dy, dx) gives angle from positive x-axis, we want from negative y-axis (down)
+            const leftRad = Math.atan2(leftDx, leftDy);
+            leftAngle = leftRad * (180 / Math.PI);
+
+            // Right: TreeTop -> Carriage  
+            const rightDx = carriage.position.x - treeTop.position.x;
+            const rightDy = carriage.position.y - treeTop.position.y;
+            const rightRad = Math.atan2(rightDx, rightDy);
+            rightAngle = rightRad * (180 / Math.PI);
+        }
 
         return (
             <>
+                {isUnsafe && (
+                    <text x={400} y={50} textAnchor="middle" fill="#ef4444" fontSize="16" fontWeight="bold">
+                        ⚠️ UNSAFE GEOMETRY (near-horizontal)
+                    </text>
+                )}
+
+                {/* Geometry Info */}
+                {preset === 'COMPLEX' && carriage && (
+                    <g>
+                        <text x={carriage.position.x + 40} y={carriage.position.y - 10} fill="#1f2937" fontSize="10" fontFamily="monospace">
+                            Left angle: {Math.round(leftAngle)}°
+                        </text>
+                        <text x={carriage.position.x + 40} y={carriage.position.y + 5} fill="#1f2937" fontSize="10" fontFamily="monospace">
+                            Right angle: {Math.round(rightAngle)}°
+                        </text>
+                        <text x={carriage.position.x + 40} y={carriage.position.y + 20} fill="#1f2937" fontSize="10" fontFamily="monospace" fontWeight="bold">
+                            Effective MA: {result.stats.effectiveMA.toFixed(2)} : 1
+                        </text>
+                    </g>
+                )}
                 {anchors.map(node => {
                     const f = result.nodeForces.get(node.id);
                     return (
@@ -90,12 +140,42 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
                             <circle cx={node.position.x} cy={node.position.y} r={12} fill="#e5e7eb" stroke="#9ca3af" strokeWidth="2" />
                             <circle cx={node.position.x} cy={node.position.y} r={4} fill="#6b7280" />
 
-                            <text x={node.position.x} y={node.position.y - 25} textAnchor="middle" fill="#6b7280" fontSize="14" fontWeight="bold">
-                                Anchor
-                            </text>
+                            {/* Custom Label */}
+                            {preset === 'COMPLEX' ? (
+                                <text x={node.position.x} y={node.position.y - 25} textAnchor="middle" fill="#6b7280" fontSize="10" fontWeight="bold">
+                                    {node.label || 'Anchor'}
+                                </text>
+                            ) : (
+                                <text x={node.position.x} y={node.position.y - 25} textAnchor="middle" fill="#6b7280" fontSize="14" fontWeight="bold">
+                                    Anchor
+                                </text>
+                            )}
                         </g>
                     );
                 })}
+
+                {/* Complex Rig: Special Labels for Anchors */}
+                {preset === 'COMPLEX' && anchors.map(node => {
+                    const f = result.nodeForces.get(node.id);
+                    if (!f || f.length() < 1) return null;
+
+                    // Show Resultant Force
+                    return (
+                        <g key={`force-${node.id}`}>
+                            <text x={node.position.x + 15} y={node.position.y - 15} fill="#10b981" fontSize="11" fontWeight="bold">
+                                R: {Math.round(f.length())}kg
+                            </text>
+                        </g>
+                    )
+                })}
+
+                {/* Floating Blocks (Weightless) */}
+                {floaters.map(node => (
+                    <g key={node.id}>
+                        <circle cx={node.position.x} cy={node.position.y} r={12} fill="#ddd6fe" stroke="#8b5cf6" strokeWidth="2" />
+                        <circle cx={node.position.x} cy={node.position.y} r={4} fill="#8b5cf6" />
+                    </g>
+                ))}
 
                 {loads.map(node => {
                     return (
@@ -111,8 +191,8 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
                             <circle cx={node.position.x} cy={node.position.y} r={12} fill="#f3e8ff" stroke="#a855f7" strokeWidth="2" />
                             <circle cx={node.position.x} cy={node.position.y} r={4} fill="#a855f7" />
 
-                            <text x={node.position.x + 20} y={node.position.y + 5} fill="#a855f7" fontWeight="bold">
-                                Load ({loadWeight}kg)
+                            <text x={node.position.x + 20} y={node.position.y + 5} fill="#a855f7" fontWeight="bold" fontSize="10">
+                                {preset === 'COMPLEX' && node.label ? node.label : `Load (${loadWeight}kg)`}
                             </text>
                         </g>
                     );
@@ -152,9 +232,44 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
 
             {renderBlockNodes()}
 
-            {/* Segments (Ropes) with Ordered Zig-Zag Offsets */}
+            {/* Segments (Ropes) */}
             {(() => {
                 if (!ropes || ropes.length === 0) return null;
+
+                if (preset === 'COMPLEX') {
+                    // Render ALL segments directly without ZigZag logic for now
+                    return segments.map(seg => {
+                        const nodeA = nodes.find(n => n.id === seg.nodeAId);
+                        const nodeB = nodes.find(n => n.id === seg.nodeBId);
+                        if (!nodeA || !nodeB) return null;
+
+                        const tension = result.tensions.get(seg.id) || 0;
+
+                        return (
+                            <g key={seg.id}>
+                                <line
+                                    x1={nodeA.position.x} y1={nodeA.position.y}
+                                    x2={nodeB.position.x} y2={nodeB.position.y}
+                                    stroke={getTensionColor(tension)}
+                                    strokeWidth={getStrokeWidth(tension)}
+                                />
+                                <text
+                                    x={(nodeA.position.x + nodeB.position.x) / 2}
+                                    y={(nodeA.position.y + nodeB.position.y) / 2 - 10}
+                                    textAnchor="middle"
+                                    fill={getTensionColor(tension)}
+                                    fontSize="12"
+                                    fontWeight="bold"
+                                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: '0px 0px 4px white' }}
+                                >
+                                    {Math.round(tension)} kg
+                                </text>
+                            </g>
+                        )
+                    });
+                }
+
+                // Standard Simple Mode Logic
                 const ropeIds = ropes[0].segmentIds; // [haul, last_support, ..., first_support]
                 const haulSegId = ropeIds[0];
                 const supportIds = ropeIds.slice(1);
@@ -178,21 +293,15 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
                     if (!isHaul) {
                         // Supporting Strand
                         const idx = visualOrder.indexOf(seg.id);
-                        if (idx === -1) return null; // Should not happen
+                        if (idx === -1) return null;
 
                         const offset = (idx - (supportCount - 1) / 2) * spacing;
                         offA = offset;
                         offB = offset;
                     } else {
-                        // Haul Strand
-                        // Starts at the offset of the LAST supporting strand (tangent exit)
-                        // Ends at the Haul Node (0 offset)
-
+                        // Haul Strand (Simple)
                         const lastOffset = ((supportCount - 1) - (supportCount - 1) / 2) * spacing;
-
-                        // Check which node is the Block
                         const isBlockA = nodeA.type.includes('PULLEY') || nodeA.type.includes('ANCHOR') || nodeA.type.includes('LOAD');
-
                         if (isBlockA) offA = lastOffset;
                         else offB = lastOffset;
                     }
@@ -212,8 +321,6 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
                                     strokeWidth="3"
                                     strokeDasharray="5,3"
                                 />
-                                {/* Arrowhead at approx end? or use Marker */}
-                                {/* Let's put a text label mid-way */}
                                 <text
                                     x={(x1 + x2) / 2}
                                     y={(y1 + y2) / 2 - 10}
@@ -253,6 +360,30 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
                 });
             })()}
 
+            {/* Force Text Overlay for Complex Mode - Show Max Tension */}
+            {preset === 'COMPLEX' && (() => {
+                let maxT = 0;
+                let maxSegId = '';
+                result.tensions.forEach((t, id) => {
+                    if (t > maxT) { maxT = t; maxSegId = id; }
+                });
+
+                const seg = segments.find(s => s.id === maxSegId);
+                if (seg) {
+                    const nodeA = nodes.find(n => n.id === seg.nodeAId);
+                    const nodeB = nodes.find(n => n.id === seg.nodeBId);
+                    if (nodeA && nodeB) {
+                        const midX = (nodeA.position.x + nodeB.position.x) / 2;
+                        const midY = (nodeA.position.y + nodeB.position.y) / 2;
+                        return (
+                            <text x={midX} y={midY - 25} textAnchor="middle" fill="red" fontSize="12" fontWeight="bold" stroke="white" strokeWidth="3" paintOrder="stroke">
+                                CRITICAL!
+                            </text>
+                        )
+                    }
+                }
+            })()}
+
             {/* Draw Sheaves/Axles on top of lines */}
             {nodes.map(node => {
                 const isAnchor = node.type === 'ANCHOR' || node.type === 'PULLEY_ANCHOR';
@@ -271,26 +402,7 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
                     );
                 }
 
-                // For Blocks, draw sheaves points
-                // Find all segments attached to this node
-                // We need to draw a circle for each attachment point (offset).
                 const attachedSegments = segments.filter(s => s.nodeAId === node.id || s.nodeBId === node.id);
-                // But attachedSegments includes connections to Haul?
-                // We want to group by "Other Node".
-
-                // Actually, we processed "parallelSegments" above.
-                // We can iterate attached segments again or just infer from node.sheaveCount?
-
-                // Let's deduce sheave centers.
-                // We want to draw circles at: node.x + offset.
-
-                // Gather unique offsets used?
-                // It's cleaner to iterate attached segments and compute their offset again.
-
-                // We can group by connection.
-                // Problem: A node might be connected to Haul (singular) AND Load (multiple).
-                // For `n_anchor`: connected to `n_load` (N times) and `n_haul` (1 time).
-                // We should render sheaves for the `n_load` connections.
 
                 return (
                     <g key={node.id} onMouseDown={(e) => handleStart(e, node.id)} onTouchStart={(e) => handleStart(e, node.id)} style={{ cursor: 'pointer' }}>
@@ -301,7 +413,7 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
                             const otherId = seg.nodeAId === node.id ? seg.nodeBId : seg.nodeAId;
                             // Only draw sheave dot if connection is part of the block tackle (vertical).
                             // i.e. other is n_anchor or n_load.
-                            if (otherId === 'n_haul') return null; // Don't draw sheave for haul line exit (or do?)
+                            if (otherId === 'n_haul') return null;
 
                             // Calculate offset same as line
                             const parallelSegments = segments.filter(s =>
