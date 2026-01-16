@@ -11,7 +11,7 @@ interface CanvasProps {
     result: SimulationResult;
     loadWeight: number;
     onNodeMove: (nodeId: string, pos: Vector2) => void;
-    preset?: 'SIMPLE' | 'COMPLEX';
+    preset?: 'SIMPLE' | 'COMPLEX' | 'SKATE_BLOCK';
 }
 
 export default function Canvas({ nodes, segments, ropes, result, loadWeight, onNodeMove, preset = 'SIMPLE' }: CanvasProps) {
@@ -141,7 +141,7 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
                             <circle cx={node.position.x} cy={node.position.y} r={4} fill="#6b7280" />
 
                             {/* Custom Label */}
-                            {preset === 'COMPLEX' ? (
+                            {(preset === 'COMPLEX' || preset === 'SKATE_BLOCK') ? (
                                 <text x={node.position.x} y={node.position.y - 25} textAnchor="middle" fill="#6b7280" fontSize="10" fontWeight="bold">
                                     {node.label || 'Anchor'}
                                 </text>
@@ -236,8 +236,7 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
             {(() => {
                 if (!ropes || ropes.length === 0) return null;
 
-                if (preset === 'COMPLEX') {
-                    // Render ALL segments directly without ZigZag logic for now
+                if (preset === 'COMPLEX' || preset === 'SKATE_BLOCK') {
                     return segments.map(seg => {
                         const nodeA = nodes.find(n => n.id === seg.nodeAId);
                         const nodeB = nodes.find(n => n.id === seg.nodeBId);
@@ -245,25 +244,88 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
 
                         const tension = result.tensions.get(seg.id) || 0;
 
+                        // Skate Block Visual Offsets
+                        // We offset the connection points if they touch 'n_carriage'
+                        let startPos = nodeA.position;
+                        let endPos = nodeB.position;
+
+                        if (preset === 'SKATE_BLOCK') {
+                            const getOffset = (nodeId: string, segId: string): Vector2 => {
+                                // Carriage Offsets
+                                if (nodeId === 'n_carriage') {
+                                    // P1: (-30, -15), P2: (+30, -15), P3: (-30, +15), P4: (+30, +15)
+                                    // Rope A (Skyline)
+                                    if (segId === 'sa1') return new Vector2(-30, -15); // Build -> P1
+                                    if (segId === 'sa2') return new Vector2(30, -15);  // P2 -> Tree
+
+                                    // Rope B (Left Control)
+                                    // sb1: Carriage -> Build. Connects to P1 (Top Left)
+                                    if (segId === 'sb1') return new Vector2(-30, -15);
+                                    // sb2: Build -> Carriage. Connects to P3 (Bottom Left)
+                                    if (segId === 'sb2') return new Vector2(-30, 15);
+                                    // sb3: Carriage -> Load. (From P3).
+                                    if (segId === 'sb3') return new Vector2(-30, 15);
+
+                                    // Rope C (Right Control)
+                                    // sc1: Carriage -> Tree (Assume starts at P2 - Top Right)
+                                    if (segId === 'sc1') return new Vector2(30, -15);
+                                    // sc2: Tree -> Carriage (Return to P4 - Bottom Right)
+                                    if (segId === 'sc2') return new Vector2(30, 15);
+                                    // sc3: Carriage -> Load (From P4)
+                                    if (segId === 'sc3') return new Vector2(30, 15);
+                                }
+
+                                // Anchor Offsets (Pulley 5 & 6)
+                                if (nodeId === 'n_building') {
+                                    // rope B connects to Pulley 5 (below anchor)
+                                    if (segId === 'sb1' || segId === 'sb2') return new Vector2(0, 20);
+                                }
+                                if (nodeId === 'n_tree') {
+                                    // rope C connects to Pulley 6 (below anchor)
+                                    if (segId === 'sc1' || segId === 'sc2') return new Vector2(0, 20);
+                                }
+
+                                return new Vector2(0, 0);
+                            };
+
+                            startPos = startPos.add(getOffset(nodeA.id, seg.id));
+                            endPos = endPos.add(getOffset(nodeB.id, seg.id));
+                        }
+
+                        // Text Offset logic
+                        const tensionTextOffset = (preset === 'SKATE_BLOCK' && seg.id.startsWith('sa')) ? -15 : 10;
+
+                        // Color Logic
+                        let segColor = getTensionColor(tension);
+                        if (preset === 'SKATE_BLOCK') {
+                            if (seg.id.startsWith('sa')) segColor = '#3b82f6'; // Blue
+                            if (seg.id.startsWith('sb')) segColor = '#ef4444'; // Red
+                            if (seg.id.startsWith('sc')) segColor = '#10b981'; // Green
+                        }
+
                         return (
                             <g key={seg.id}>
                                 <line
-                                    x1={nodeA.position.x} y1={nodeA.position.y}
-                                    x2={nodeB.position.x} y2={nodeB.position.y}
-                                    stroke={getTensionColor(tension)}
-                                    strokeWidth={getStrokeWidth(tension)}
+                                    x1={startPos.x} y1={startPos.y}
+                                    x2={endPos.x} y2={endPos.y}
+                                    stroke={segColor}
+                                    // Use distinct styles for Rope A/B/C
+                                    strokeWidth={seg.id.startsWith('sa') ? 4 : 2}
+                                    strokeDasharray={seg.id.startsWith('sa') ? 'none' : '4,2'}
                                 />
-                                <text
-                                    x={(nodeA.position.x + nodeB.position.x) / 2}
-                                    y={(nodeA.position.y + nodeB.position.y) / 2 - 10}
-                                    textAnchor="middle"
-                                    fill={getTensionColor(tension)}
-                                    fontSize="12"
-                                    fontWeight="bold"
-                                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: '0px 0px 4px white' }}
-                                >
-                                    {Math.round(tension)} kg
-                                </text>
+                                {tension > 1 && (
+                                    <text
+                                        x={(startPos.x + endPos.x) / 2}
+                                        y={(startPos.y + endPos.y) / 2 + tensionTextOffset}
+                                        textAnchor="middle"
+                                        fill={segColor}
+                                        fontSize="10"
+                                        fontWeight="bold"
+                                        style={{ pointerEvents: 'none', userSelect: 'none', textShadow: '0px 0px 4px white' }}
+                                    >
+                                        {Math.round(tension)}
+                                    </text>
+                                )}
                             </g>
                         )
                     });
@@ -402,7 +464,160 @@ export default function Canvas({ nodes, segments, ropes, result, loadWeight, onN
                     );
                 }
 
+                // Render Pulleys 5 (Build) and 6 (Tree) for Skate Block
+                if (preset === 'SKATE_BLOCK') {
+                    if (node.id === 'n_building') {
+                        return (
+                            <g key={node.id}>
+                                {/* Main Anchor Point (Rope A) - Circle */}
+                                {/* Previously rendered in renderBlockNodes but we can overlay pulley 5 here */}
+                                <circle cx={node.position.x} cy={node.position.y + 20} r={8} fill="#ef4444" stroke="white" strokeWidth="2" />
+                                <text x={node.position.x} y={node.position.y + 35} textAnchor="middle" fontSize="10" fill="#ef4444">P5</text>
+                            </g>
+                        );
+                    }
+                    if (node.id === 'n_tree') {
+                        return (
+                            <g key={node.id}>
+                                <circle cx={node.position.x} cy={node.position.y + 20} r={8} fill="#10b981" stroke="white" strokeWidth="2" />
+                                <text x={node.position.x} y={node.position.y + 35} textAnchor="middle" fontSize="10" fill="#10b981">P6</text>
+                            </g>
+                        );
+                    }
+                }
+
                 const attachedSegments = segments.filter(s => s.nodeAId === node.id || s.nodeBId === node.id);
+
+                // Special Rendering for Skate Block Carriage
+                if (preset === 'SKATE_BLOCK' && node.id === 'n_carriage') {
+                    return (
+                        <g key={node.id} onMouseDown={(e) => handleStart(e, node.id)} onTouchStart={(e) => handleStart(e, node.id)} style={{ cursor: 'move' }}>
+                            {/* Visual Frame */}
+                            <path d={`
+                                M ${node.position.x - 35} ${node.position.y - 20} 
+                                L ${node.position.x + 35} ${node.position.y - 20}
+                                L ${node.position.x + 35} ${node.position.y + 20}
+                                L ${node.position.x - 35} ${node.position.y + 20}
+                                Z
+                            `} fill="none" stroke="#6b7280" strokeWidth="4" opacity="0.5" />
+
+                            {/* Connecting Line between main pulleys */}
+                            <line
+                                x1={node.position.x - 30} y1={node.position.y - 15}
+                                x2={node.position.x + 30} y2={node.position.y - 15}
+                                stroke="#3b82f6" strokeWidth="4"
+                            />
+
+                            {/* Pulleys 1, 2 (Top) */}
+                            <circle cx={node.position.x - 30} cy={node.position.y - 15} r={8} fill="#3b82f6" stroke="white" strokeWidth="2" />
+                            <circle cx={node.position.x + 30} cy={node.position.y - 15} r={8} fill="#3b82f6" stroke="white" strokeWidth="2" />
+
+                            {/* Pulleys 3, 4 (Bottom) */}
+
+                            <circle cx={node.position.x - 30} cy={node.position.y + 15} r={6} fill="#ef4444" stroke="white" strokeWidth="2" />
+                            <circle cx={node.position.x + 30} cy={node.position.y + 15} r={6} fill="#10b981" stroke="white" strokeWidth="2" />
+
+                            {/* Angle Arches (Calculated via Single Point Physics Model) */}
+                            {(() => {
+                                // Center of Carriage (Physics Point)
+                                const center = node.position;
+
+                                // Anchor/Load Nodes
+                                const buildNode = nodes.find(n => n.id === 'n_building');
+                                const treeNode = nodes.find(n => n.id === 'n_tree');
+                                const loadNode = nodes.find(n => n.id === 'n_load'); // Visually below
+
+                                if (!buildNode || !treeNode || !loadNode) return null;
+
+                                // Helper: Get Arc Path for angle at logical center, drawn at offset center
+                                const drawArc = (
+                                    centerPos: Vector2, // Where vectors originate physically
+                                    drawOrigin: Vector2, // Where to draw the arc visually
+                                    vecA: Vector2, // Vector 1 (from center)
+                                    vecB: Vector2, // Vector 2 (from center)
+                                    color: string,
+                                    key: string
+                                ) => {
+                                    // Angles in SVG Space (y down)
+                                    const angA = Math.atan2(vecA.y, vecA.x) * 180 / Math.PI;
+                                    const angB = Math.atan2(vecB.y, vecB.x) * 180 / Math.PI;
+
+                                    // Internal angle (degrees)
+                                    const dot = vecA.dot(vecB);
+                                    const angleDeg = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+
+                                    // Arc Drawing Logic
+                                    const r = 40;
+                                    const startX = drawOrigin.x + r * Math.cos(angA * Math.PI / 180);
+                                    const startY = drawOrigin.y + r * Math.sin(angA * Math.PI / 180);
+                                    const endX = drawOrigin.x + r * Math.cos(angB * Math.PI / 180);
+                                    const endY = drawOrigin.y + r * Math.sin(angB * Math.PI / 180);
+
+                                    // Determine sweep based on shortest path
+                                    let diff = angB - angA;
+                                    while (diff < -180) diff += 360;
+                                    while (diff > 180) diff -= 360;
+                                    const sweep = diff > 0 ? 1 : 0;
+
+                                    const d = `M ${startX} ${startY} A ${r} ${r} 0 0 ${sweep} ${endX} ${endY}`;
+
+                                    const midAng = angA + diff / 2;
+                                    const textX = drawOrigin.x + (r + 15) * Math.cos(midAng * Math.PI / 180);
+                                    const textY = drawOrigin.y + (r + 15) * Math.sin(midAng * Math.PI / 180);
+
+                                    return (
+                                        <g key={key}>
+                                            <path d={d} fill="none" stroke={color} strokeWidth="1.5" strokeDasharray="4,2" opacity="0.8" />
+                                            <circle cx={startX} cy={startY} r={2} fill={color} />
+                                            <circle cx={endX} cy={endY} r={2} fill={color} />
+                                            <text x={textX} y={textY} textAnchor="middle" dominantBaseline="middle" fontSize="11" fill={color} fontWeight="bold">
+                                                {Math.round(angleDeg)}°
+                                            </text>
+                                        </g>
+                                    );
+                                };
+
+                                // Vectors from Center (Single Point Model)
+                                // Top-Left (Skyline): Center -> Building
+                                const vSkyL = buildNode.position.sub(center).normalize();
+                                // Top-Right (Skyline): Center -> Tree
+                                const vSkyR = treeNode.position.sub(center).normalize();
+                                // Down-Left (Control B): Center -> Load (But actually Rope B pulls to Build?)
+                                // No, control rope B pulls LEFT (to Building) and connects to Load.
+                                // Actually, Rope B vector at carriage? 
+                                // Tension B acts on Carriage pulling towards Building (left) and towards Load (down).
+                                // BUT the angle visualized is usually the "internal angle" of the rope passing through.
+                                // For Rope B (Carriage->Build, Carriage->Load):
+                                // Vector 1: Center -> Building (Left Up)
+                                // Vector 2: Center -> Load (Down)
+                                const vLoad = loadNode.position.sub(center).normalize();
+
+                                // Visual Origins
+                                const pBottomLeft = new Vector2(node.position.x - 30, node.position.y + 15);
+                                const pBottomRight = new Vector2(node.position.x + 30, node.position.y + 15);
+                                const pTop = new Vector2(node.position.x, node.position.y - 15);
+
+                                return (
+                                    <g>
+                                        {/* Rope A (Skyline) Angle: Between Left Leg and Right Leg */}
+                                        {drawArc(center, pTop, vSkyL, vSkyR, '#3b82f6', 'angle-a')}
+
+                                        {/* Rope B (Left Control) Angle: Between Building Leg and Load Leg */}
+                                        {/* Note: vSkyL is Center->Building. vLoad is Center->Load. */}
+                                        {drawArc(center, pBottomLeft, vSkyL, vLoad, '#ef4444', 'angle-b')}
+
+                                        {/* Rope C (Right Control) Angle: Between Tree Leg and Load Leg */}
+                                        {/* Note: vSkyR is Center->Tree. vLoad is Center->Load. */}
+                                        {drawArc(center, pBottomRight, vSkyR, vLoad, '#10b981', 'angle-c')}
+                                    </g>
+                                );
+                            })()}
+
+                            {/* Label */}
+                            <text x={node.position.x} y={node.position.y - 30} textAnchor="middle" fontSize="10" fill="#6b7280" fontWeight="bold">Skate Block</text>
+                        </g>
+                    );
+                }
 
                 return (
                     <g key={node.id} onMouseDown={(e) => handleStart(e, node.id)} onTouchStart={(e) => handleStart(e, node.id)} style={{ cursor: 'pointer' }}>

@@ -21,7 +21,11 @@ interface ControlsProps {
     maCount: number;
     setMaCount: (n: number) => void;
     onPreset: (n: number) => void;
-    currentPreset: 'SIMPLE' | 'COMPLEX';
+    currentPreset: 'SIMPLE' | 'COMPLEX' | 'SKATE_BLOCK';
+
+    // Skate Block specific
+    ropeATension?: number;
+    setRopeATension?: (t: number) => void;
 }
 
 export default function Controls({
@@ -31,7 +35,8 @@ export default function Controls({
     nodeCount, segmentCount, maxTension,
     stats,
     maCount, setMaCount,
-    onPreset, currentPreset
+    onPreset, currentPreset,
+    ropeATension, setRopeATension
 }: ControlsProps) {
     const isHighTension = maxTension > loadWeight * 2;
 
@@ -44,18 +49,24 @@ export default function Controls({
             {/* Preset Selector */}
             <div className="control-group">
                 <label className="control-label">System Preset</label>
-                <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
+                <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-lg gap-1">
                     <button
                         onClick={() => onPreset(0)}
-                        className={`flex-1 py-1 px-2 rounded text-sm font-medium transition-colors ${currentPreset === 'SIMPLE' ? 'bg-white shadow text-black' : 'text-gray-500 hover:text-gray-700'}`}
+                        className={`flex-1 py-1 px-1 rounded text-xs font-medium transition-colors ${currentPreset === 'SIMPLE' ? 'bg-white shadow text-black' : 'text-gray-500 hover:text-gray-700'}`}
                     >
                         Standard
                     </button>
                     <button
                         onClick={() => onPreset(1)}
-                        className={`flex-1 py-1 px-2 rounded text-sm font-medium transition-colors ${currentPreset === 'COMPLEX' ? 'bg-white shadow text-black' : 'text-gray-500 hover:text-gray-700'}`}
+                        className={`flex-1 py-1 px-1 rounded text-xs font-medium transition-colors ${currentPreset === 'COMPLEX' ? 'bg-white shadow text-black' : 'text-gray-500 hover:text-gray-700'}`}
                     >
                         Complex
+                    </button>
+                    <button
+                        onClick={() => onPreset(2)}
+                        className={`flex-1 py-1 px-1 rounded text-xs font-medium transition-colors ${currentPreset === 'SKATE_BLOCK' ? 'bg-white shadow text-black' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        Skate Block
                     </button>
                 </div>
             </div>
@@ -100,6 +111,26 @@ export default function Controls({
                     />
                 </div>
             </div>
+
+            {/* Skate Block Tension Control */}
+            {currentPreset === 'SKATE_BLOCK' && setRopeATension && ropeATension !== undefined && (
+                <div className="control-group">
+                    <label className="control-label">
+                        Port-a-wrap Tension ({ropeATension} kg)
+                    </label>
+                    <div className="control-input-row">
+                        <input
+                            type="range"
+                            min="50"
+                            max="1000"
+                            step="10"
+                            value={ropeATension}
+                            onChange={(e) => setRopeATension(Number(e.target.value))}
+                            className="range-input"
+                        />
+                    </div>
+                </div>
+            )}
 
             <div className="control-group">
                 <label className="control-label">
@@ -148,6 +179,16 @@ export default function Controls({
                     <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded text-xs leading-5">
                         <p><strong>Note:</strong> Static approximation. Ignores friction at anchors, assume perfect redirects.</p>
                         <p className="mt-2">Check the canvas labels for segment tensions and resultant forces at anchors.</p>
+                    </div>
+                </div>
+            )}
+
+            {currentPreset === 'SKATE_BLOCK' && (
+                <div className="info-section">
+                    <h3 style={{ margin: '0 0 0.5rem 0', fontWeight: '600', color: '#8b5cf6' }}>Skate Block Info</h3>
+                    <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded text-xs leading-5">
+                        <p><strong>System:</strong> Split control lines (B/C) supporting load on a skyline (A).</p>
+                        <p className="mt-2">Carriage 'Sags' until vertical support equals Load. Control lines balance horizontally.</p>
                     </div>
                 </div>
             )}

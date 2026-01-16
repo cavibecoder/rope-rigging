@@ -257,6 +257,138 @@ function buildSystem(nodes: Node[], segments: Segment[], ropes: Rope[], loadWeig
 }
 
 
+// ---- Skate Block Logic ----
+
+export interface SkateBlockResult {
+    carriageY: number;
+    tensionA: number; // Rope A Tension (User Input)
+    tensionB: number;
+    tensionC: number;
+    loadWeight: number;
+}
+
+/**
+ * Solves the specific geometry for the "Skate Block" system.
+ * 
+ * Geometry:
+ * - Rope A (Skyline): Building -> Carriage -> Tree. Tension Ta (Input).
+ * - Rope B: Load <-> Carriage <-> Wall. Tension Tb.
+ * - Rope C: Load <-> Carriage <-> Tree. Tension Tc.
+ * 
+ * Force Balance on Carriage (Point Mass Assumption):
+ * Y: Ta * (sin(angA_L) + sin(angA_R)) = Load (Since Tb + Tc = Load)
+ * X: Ta * (cos(angA_R) - cos(angA_L)) + 2*Tc - 2*Tb = 0
+ * 
+ * User controls: Carriage X (input), Ta (input), Load (input).
+ * Solver finds: Carriage Y.
+ */
+export function solveSkateBlock(
+    anchorLeft: Vector2,
+    anchorRight: Vector2,
+    carriageX: number,
+    ropeATension: number,
+    loadWeight: number,
+    efficiency: number = 1.0
+): SkateBlockResult {
+
+    // Iteratively solve for Y such that Sum(Fy_skyline) = Load.
+    // Range for Y: max(anchorLeft.y, anchorRight.y) to Infinity.
+    // Function is monotonic (deeper sag = more vertical force).
+
+    const TOLERANCE = 0.1; // 100g force diff?
+    // ... same solver logic for Y ...
+    // Binary Search for Y (Geometric Constraint)
+    // We start high (y = minAnchorY) and go low.
+    let highY = Math.min(anchorLeft.y, anchorRight.y);
+    let lowY = highY + 1000; // Assume max sag 1000px
+
+    // Safety: if cable is super tight, it's flat.
+    // If super loose, it's deep.
+    // We want to find Y such that Vertical Forces Balance?
+    // Actually, for Skate Block, the "Skyline" (Rope A) supports the carriage vertically.
+    // Rope B and C are control lines, primarily horizontal but they do have vertical components.
+    // simpler model: Rope A supports the weight. Rope B/C just position X.
+    // (This is an approximation but standard for this simulation level).
+
+    // Iteration to find Y where Rope A vertical component == Load?
+    // Actually, simple sag formula: T_v = T * sin(angle).
+    // Sum(T_v) = Load.
+
+    // Let's refine:
+    // We assume Rope A (Skyline) takes the FULL vertical load for simplicity in this "Skate" model,
+    // or we can include B/C vertical components if we knew them.
+    // Given the request, let's stick to the geometry that T_A provides the lift.
+
+    let finalY = lowY;
+    for (let i = 0; i < 20; i++) {
+        const midY = (lowY + highY) / 2;
+        const carriagePos = new Vector2(carriageX, midY);
+
+        const dirL = anchorLeft.sub(carriagePos).normalize();
+        const dirR = anchorRight.sub(carriagePos).normalize();
+
+        // Vertical force from A
+        const F_A_y = ropeATension * dirL.y + ropeATension * dirR.y;
+        // SVG coords: y down is positive. Gravity is down (+).
+        // Force from rope is UP (negative Y direction relative to carriage).
+        // Vector pointing TO anchor has negative Y.
+        // So force is T * dir.y (negative).
+        // UP force magnitude is - (T*dirL.y + T*dirR.y).
+        const lift = -(ropeATension * dirL.y + ropeATension * dirR.y);
+
+        if (lift > loadWeight) {
+            // Too much lift, we are too deep (angles are steep). Need to go higher (shallower).
+            lowY = midY;
+        } else {
+            // Not enough lift, we are too high (flat). Need to go deeper.
+            highY = midY;
+        }
+    }
+    finalY = (lowY + highY) / 2;
+
+    // Now calculate Tensions B and C based on X equilibrium.
+    const carriagePos = new Vector2(carriageX, finalY);
+    const dirL = anchorLeft.sub(carriagePos).normalize();
+    const dirR = anchorRight.sub(carriagePos).normalize();
+
+    // Horizontal Balance:
+    // Right Forces + Left Forces = 0.
+    // Skyline X Force (Right is positive):
+    // F_A_x = Ta * dirL.x + Ta * dirR.x
+    // dirL points Left (negative x). dirR points Right (positive x).
+    const F_A_x = ropeATension * dirL.x + ropeATension * dirR.x;
+
+    // Forces from control lines (Symmetric 2-strand with Efficiency):
+    // Strand Factor S = 1 + efficiency (Force multiplier for horizontal loop)
+    const S = 1 + efficiency;
+
+    // Balance Equations:
+    // 1. Horizontal: F_A_x - F_Left + F_Right = 0
+    //    F_Left = Tb * S, F_Right = Tc * S
+    //    F_A_x - S*(Tb - Tc) = 0  =>  Tb - Tc = F_A_x / S.
+
+    // 2. Vertical/Load:
+    //    Ideally: Tb + Tc = Load.
+    //    With Efficiency (Input Tension > Load Force), we need more tension to support load.
+    //    Assume effective support is scaled by efficiency: (Tb + Tc) * efficiency = Load.
+    //    => Tb + Tc = Load / efficiency.
+
+    const sumT = loadWeight / efficiency;
+    const diffT = F_A_x / S;
+
+    const tensionB = (sumT + diffT) / 2;
+    const tensionC = (sumT - diffT) / 2;
+
+    return {
+        carriageY: finalY,
+        tensionA: ropeATension,
+        tensionB: tensionB,
+        tensionC: tensionC,
+        loadWeight
+    };
+}
+
+
 // ---- Math Helpers ----
 
 function solveWeightedLeastSquares(A: number[][], B: number[], Weights: number[]): number[] {
